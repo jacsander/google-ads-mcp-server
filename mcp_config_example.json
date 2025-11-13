@@ -1,0 +1,17 @@
+{
+  "mcpServers": {
+    "google-ads-mcp": {
+      "command": "python",
+      "args": [
+        "-m",
+        "ads_mcp.server"
+      ],
+      "env": {
+        "GOOGLE_ADS_DEVELOPER_TOKEN": "YOUR_DEVELOPER_TOKEN_HERE",
+        "GOOGLE_APPLICATION_CREDENTIALS": "C:\\Users\\YourName\\AppData\\Roaming\\gcloud\\application_default_credentials.json",
+        "GOOGLE_PROJECT_ID": "your-project-id"
+      }
+    }
+  }
+}
+

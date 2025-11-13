@@ -1,0 +1,8 @@
+# Google Ads MCP Server Dependencies
+# This file is provided for convenience. The project uses pyproject.toml for dependency management.
+# Install with: pip install -r requirements.txt
+# Or better: pip install -e .
+
+google-ads>=28.0.0
+mcp[cli]>=1.2.0
+

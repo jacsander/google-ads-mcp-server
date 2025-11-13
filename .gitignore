@@ -35,3 +35,18 @@ coverage.xml
 *.cover
 .hypothesis/
 .pytest_cache/
+
+# Environment variables and secrets
+.env
+.env.local
+*.env
+secrets/
+credentials.json
+token.json
+
+# Google Cloud credentials
+*.json
+!package.json
+!tsconfig.json
+!mcp_config_example.json
+!cloudbuild.yaml
