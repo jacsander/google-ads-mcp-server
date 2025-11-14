@@ -38,6 +38,24 @@ def search(
         limit: The maximum number of rows to return
 
     """
+    
+    # Validate required parameters
+    if not fields or len(fields) == 0:
+        raise ValueError("Fields parameter is required and cannot be empty. Please provide at least one field to fetch.")
+    
+    if not resource:
+        raise ValueError("Resource parameter is required.")
+    
+    if not customer_id:
+        raise ValueError("Customer ID parameter is required.")
+    
+    # Normalize customer_id: remove hyphens and other punctuation
+    # Customer IDs should be numeric strings without punctuation
+    normalized_customer_id = customer_id.replace("-", "").replace(" ", "").strip()
+    if not normalized_customer_id.isdigit():
+        raise ValueError(f"Customer ID must be numeric. Received: {customer_id}")
+    
+    utils.logger.info(f"Search request - Customer ID: {customer_id} (normalized: {normalized_customer_id}), Resource: {resource}, Fields: {fields}")
 
     ga_service = utils.get_googleads_service("GoogleAdsService")
 
@@ -50,14 +68,21 @@ def search(
         query_parts.append(f" ORDER BY {','.join(orderings)}")
 
     if limit:
-        query_parts.append(f" LIMIT {limit}")
+        # Convert limit to integer if it's a string
+        limit_value = int(limit) if isinstance(limit, str) else limit
+        query_parts.append(f" LIMIT {limit_value}")
 
     query = "".join(query_parts)
-    utils.logger.info(f"ads_mcp.search query {query}")
+    utils.logger.info(f"ads_mcp.search query: {query}")
+    utils.logger.info(f"ads_mcp.search customer_id: {normalized_customer_id}")
 
-    query_result = ga_service.search_stream(
-        customer_id=customer_id, query=query
-    )
+    try:
+        query_result = ga_service.search_stream(
+            customer_id=normalized_customer_id, query=query
+        )
+    except Exception as e:
+        utils.logger.error(f"Google Ads API error - Query: {query}, Customer ID: {normalized_customer_id}, Error: {e}")
+        raise
 
     final_output: List = []
     for batch in query_result:
@@ -77,10 +102,18 @@ def _search_tool_description() -> str:
     )
 
     try:
-        with open(utils.get_gaql_resources_filepath(), "r") as file:
+        file_path = utils.get_gaql_resources_filepath()
+        # Convert path-like object to string if needed
+        if hasattr(file_path, '__fspath__'):
+            file_path = file_path.__fspath__()
+        elif hasattr(file_path, 'as_posix'):
+            file_path = str(file_path)
+        with open(file_path, "r") as file:
             file_content = file.read()
-    except FileNotFoundError:
-        utils.logger.error("The specified file was not found.")
+    except FileNotFoundError as e:
+        utils.logger.error(f"The specified file was not found: {e}. Path attempted: {file_path}")
+    except Exception as e:
+        utils.logger.error(f"Error reading GAQL resources file: {e}")
 
     return f"""
 {search.__doc__}

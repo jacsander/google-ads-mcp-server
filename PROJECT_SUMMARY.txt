@@ -2,7 +2,8 @@
 GOOGLE ADS MCP SERVER - PROJECT SETUP SUMMARY
 ================================================================================
 
-Date: November 11, 2025
+Date: November 14, 2025 (Last Updated)
+Initial Setup: November 11, 2025
 Project: Google Ads MCP Server for Copilot Studio
 Location: C:\Users\jsander\OneDrive - Fiskars\Desktop\D&A\Dev projects\google-ads-mcp-server\google-ads-mcp
 
@@ -55,26 +56,77 @@ WHAT WAS DONE
      * FastAPI application
      * /health endpoint for health checks
      * /sse endpoint for Server-Sent Events (MCP protocol)
+     * / (root) endpoint for HTTP POST (MCP JSON-RPC) - Added for Copilot Studio
      * /messages endpoint for HTTP POST (MCP JSON-RPC)
      * CORS middleware for browser-based clients
    - Implemented JSON-RPC handlers for:
-     * initialize - MCP protocol initialization
-     * tools/list - List available MCP tools
+     * initialize - MCP protocol initialization with proper capabilities
+     * tools/list - List available MCP tools (with FastMCP integration)
+     * tools/call - Execute MCP tools (with FastMCP integration)
      * resources/list - List available MCP resources
+     * notifications/* - Proper handling of MCP notifications (204 No Content)
 
 8. DEPLOYMENT EXECUTED
    - Built Docker image using Google Cloud Build
    - Deployed to Google Cloud Run
    - Service URL: https://google-ads-mcp-404988868020.us-central1.run.app
    - Environment variables configured:
-     * GOOGLE_ADS_DEVELOPER_TOKEN: LU9JLTXv0fWRIfh6jjXZ4Q
+     * GOOGLE_ADS_DEVELOPER_TOKEN: YOUR_DEVELOPER_TOKEN
      * GOOGLE_PROJECT_ID: mimetic-perigee-290610
 
-9. TROUBLESHOOTING & FIXES
+9. TROUBLESHOOTING & FIXES (November 13, 2025)
    - Fixed import errors in HTTP server (removed non-existent MCP type imports)
    - Simplified SSE endpoint implementation
    - Added fallback tool definitions for when FastMCP tools aren't accessible
    - Fixed syntax errors in HTTP server code
+   
+10. COPILOT STUDIO CONNECTION FIXES (November 13, 2025)
+   - Added root POST handler (/) for Copilot Studio requests
+   - Fixed JSON-RPC response formatting to prevent malformed responses
+   - Implemented proper notification handling (204 No Content responses)
+   - Fixed async method handling for FastMCP's list_tools() and call_tool()
+   - Added tools/call handler for tool execution
+   - Updated initialize response to include proper capabilities (tools.listChanged)
+   - Fixed Content-Length header issues for 204 responses
+   - Improved error handling and logging throughout
+   - Created shared handle_mcp_request() function for consistent request handling
+
+11. TOOL EXECUTION FIXES (November 13, 2025 - Afternoon)
+   - Fixed file path handling in search.py for gaql_resources.json
+   - Added parameter validation for search tool (fields, resource, customer_id)
+   - Implemented automatic customer ID normalization (removes hyphens)
+   - Enhanced error messages for better debugging
+   - Added comprehensive logging for tool calls and queries
+   - Fixed 204 No Content responses (removed invalid Content-Length header)
+
+12. OAUTH AUTHENTICATION SETUP (November 13, 2025 - Afternoon)
+   - Discovered Google Ads API requires OAuth 2.0 user credentials (not service accounts)
+   - Updated ads_mcp/utils.py to support OAuth credentials from environment variables
+   - Added Secret Manager support for OAuth credentials (optional)
+   - Created OAUTH_SETUP.md with comprehensive OAuth setup instructions
+   - Created get_refresh_token.py script for generating OAuth refresh tokens
+   - Successfully generated OAuth refresh token for Google Ads API access
+   - OAuth credentials obtained:
+     * Client ID: YOUR_CLIENT_ID.apps.googleusercontent.com
+     * Client Secret: YOUR_CLIENT_SECRET
+     * Refresh Token: YOUR_REFRESH_TOKEN
+
+13. OAUTH CREDENTIALS DEPLOYMENT (November 13, 2025 - Afternoon Session)
+   - Deployed OAuth credentials to Cloud Run environment variables
+   - Updated Cloud Run service with GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN
+   - Initial refresh token was from a Gmail account without Google Ads access
+   - Generated new OAuth refresh token using jacob.sander@fiskars.com account (has Google Ads access)
+   - New refresh token: YOUR_REFRESH_TOKEN
+   - Updated Cloud Run with new refresh token (revision 00011-qwc)
+
+14. LAZY INITIALIZATION & ERROR HANDLING IMPROVEMENTS (November 13, 2025 - Afternoon Session)
+   - Implemented lazy initialization of Google Ads client in ads_mcp/utils.py
+   - Changed from module-level initialization to on-demand creation
+   - Prevents server startup failures if credentials are invalid
+   - Added comprehensive error handling and logging around client creation
+   - Enhanced error messages in HTTP server with full tracebacks
+   - Added detailed logging for all incoming requests (raw body logging)
+   - Improved error responses with error_type and error_details fields
 
 ================================================================================
 CURRENT STATUS
@@ -90,23 +142,78 @@ CONFIGURATION:
 - Developer Token: Configured in Cloud Run environment variables
 - Project ID: mimetic-perigee-290610
 - Region: us-central1
-- Authentication: Application Default Credentials (from Google Cloud)
+- Authentication: OAuth 2.0 user credentials (required for Google Ads API)
+  * OAuth credentials obtained and ready for deployment
+  * Will use environment variables: GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN
 
-KNOWN ISSUES:
-1. Copilot Studio connection errors - "Connector request failed"
-   - Error shows: "[{\"jsonrpc\":\"2.0\"}]" - malformed JSON-RPC response
-   - Tools and Resources sections show "No tools available" / "No resources available"
-   - Likely cause: MCP protocol implementation needs refinement for Copilot Studio
+CURRENT STATUS (Updated November 14, 2025):
+✅ HTTP Server responding to requests correctly
+✅ Root POST handler (/) implemented for Copilot Studio compatibility
+✅ Notification handling properly implemented (204 No Content)
+✅ Tool discovery working via FastMCP's list_tools() method
+✅ Tool execution handler implemented (tools/call)
+✅ Async method handling properly implemented
+✅ JSON-RPC 2.0 responses properly formatted
+✅ All MCP protocol methods implemented: initialize, tools/list, tools/call, resources/list
+✅ OAuth 2.0 credentials obtained and deployed to Cloud Run
+✅ OAuth refresh token generated with Fiskars account (has Google Ads access)
+✅ Tool parameter validation and error handling improved
+✅ Lazy initialization of Google Ads client implemented
+✅ Enhanced error logging and debugging capabilities
+✅ Copilot Studio connection working - successfully connecting and calling tools
+   - Initialize requests working correctly
+   - Notifications working correctly
+   - Tools/list requests working correctly
+   - Tools/call requests working correctly
+   - Tool schema normalization implemented for Copilot Studio compatibility
+   - Request body reading issue fixed
+   - Enhanced initialize response capabilities
+⚠️ BLOCKER: Developer Token Access Level - DEVELOPER_TOKEN_NOT_APPROVED
+   - Issue: Developer token is only approved for test accounts
+   - Error: "The developer token is only approved for use with test accounts. To access non-test accounts, apply for Basic or Standard access."
+   - Solution: Apply for Basic or Standard access in Google Ads API Center
+   - Status: Waiting for developer token upgrade approval
 
-2. HTTP Server Implementation:
-   - SSE endpoint simplified (full bidirectional SSE is complex)
-   - POST /messages endpoint should handle JSON-RPC requests
-   - May need root POST handler if Copilot Studio sends requests to "/"
+KNOWN ISSUES (Status):
+1. ✅ FIXED: Authentication Error (UNAUTHENTICATED/NOT_ADS_USER)
+   - Issue: Google Ads API requires OAuth 2.0 user credentials, not service accounts
+   - Solution: Updated utils.py to support OAuth credentials from environment variables
+   - Status: OAuth refresh token obtained, ready to deploy to Cloud Run
+2. ✅ FIXED: Tool Execution Errors (INVALID_ARGUMENT/unexpected input)
+   - Issue: Missing parameter validation, customer ID format issues
+   - Solution: Added validation, customer ID normalization, better error messages
+   - Status: Fixed and deployed (revision 00008-x49)
+3. ✅ FIXED: Malformed JSON-RPC responses - Proper response formatting implemented
+4. ✅ FIXED: Notification handling errors - 204 No Content with proper headers
+5. ✅ FIXED: Async method errors - Proper coroutine handling added
+6. ✅ FIXED: Tool discovery - FastMCP integration working correctly
+7. ✅ FIXED: File path issues - Fixed gaql_resources.json path handling
+8. ✅ COMPLETED: Deploy OAuth credentials to Cloud Run
+   - OAuth credentials successfully deployed to Cloud Run
+   - All three environment variables configured: GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN
+   - Refresh token updated to use Fiskars account (jacob.sander@fiskars.com) with Google Ads access
+9. ✅ FIXED: Copilot Studio Connection Issues
+   - Issue: SystemError occurring when connecting to Copilot Studio
+   - Root causes identified and fixed:
+     * Request body being read twice (fixed)
+     * Tool schema format issues (array types converted to single type)
+     * Initialize response capabilities enhanced
+   - Status: Copilot Studio successfully connecting and calling tools (revision 00013-ntz)
+10. ⚠️ BLOCKER: Developer Token Access Level (DEVELOPER_TOKEN_NOT_APPROVED)
+   - Issue: Developer token only approved for test accounts, cannot access production accounts
+   - Error Code: authorization_error: DEVELOPER_TOKEN_NOT_APPROVED
+   - Error Message: "The developer token is only approved for use with test accounts. To access non-test accounts, apply for Basic or Standard access."
+   - Solution: Apply for Basic or Standard access in Google Ads API Center (https://ads.google.com/aw/apicenter)
+   - Status: Waiting for developer token upgrade approval
+   - Workaround: Use test Google Ads account customer IDs until approval is granted
 
-3. FastMCP Integration:
-   - FastMCP is designed for stdio transport, not HTTP
-   - Tools may not be accessible via HTTP endpoints
-   - May need to manually expose tool definitions
+REMAINING CONSIDERATIONS:
+- SSE endpoint simplified (full bidirectional SSE is complex, HTTP POST used instead)
+- ✅ OAuth credentials deployed to Cloud Run environment variables
+- Consider using Secret Manager for OAuth credentials in production (more secure)
+- ✅ Copilot Studio connection working - tools are being discovered and called successfully
+- ⚠️ Developer token needs to be upgraded from Test to Basic/Standard access for production accounts
+- Once developer token is upgraded, tool execution should work with production Google Ads accounts
 
 ================================================================================
 FILES CREATED/MODIFIED
@@ -123,6 +230,10 @@ NEW FILES:
 - setup_check.py
 - find_mcp_config.py
 - mcp_config_example.json
+- get_refresh_token.py (OAuth refresh token generation script)
+- OAUTH_SETUP.md (OAuth 2.0 setup guide)
+- deploy-config.json (Deployment configuration reference)
+- oauth_credentials.json (OAuth credentials - DO NOT COMMIT)
 
 DOCUMENTATION FILES:
 - SETUP_LOCAL.md
@@ -137,9 +248,32 @@ DOCUMENTATION FILES:
 - DEPLOYMENT_SUCCESS.md
 - COPILOT_SETUP.md
 - COPILOT_STUDIO_SETUP.md
+- COPILOT_STUDIO_FIXES.md (comprehensive fix documentation)
 
 MODIFIED FILES:
 - pyproject.toml (added fastapi and uvicorn dependencies)
+- ads_mcp/http_server.py (major updates for Copilot Studio compatibility)
+  * Added root POST handler (/)
+  * Fixed notification handling (204 responses)
+  * Added async method support for FastMCP
+  * Added tools/call handler
+  * Improved error handling and logging
+  * Fixed Content-Length header issues
+  * Enhanced logging for tool calls and responses
+- ads_mcp/utils.py (OAuth authentication support)
+  * Updated _create_credentials() to support OAuth 2.0 credentials
+  * Added support for environment variables (GOOGLE_ADS_CLIENT_ID, etc.)
+  * Added Secret Manager support (optional)
+  * Improved error messages for authentication failures
+- ads_mcp/tools/search.py (parameter validation and error handling)
+  * Added validation for required parameters (fields, resource, customer_id)
+  * Implemented customer ID normalization (removes hyphens)
+  * Enhanced error messages
+  * Improved logging for debugging
+  * Fixed file path handling for gaql_resources.json
+- .gitignore (updated to exclude sensitive files)
+  * Added oauth_credentials.json
+  * Added client_secret_*.txt files
 
 EXISTING FILES (NOT MODIFIED):
 - ads_mcp/server.py (original stdio server)
@@ -152,28 +286,41 @@ EXISTING FILES (NOT MODIFIED):
 NEXT STEPS TO COMPLETE SETUP
 ================================================================================
 
-1. FIX COPILOT STUDIO CONNECTION:
-   - Investigate what requests Copilot Studio is making
-   - Check server logs: gcloud run services logs read google-ads-mcp --region us-central1
-   - May need to add root POST handler ("/")
-   - Verify JSON-RPC response format matches Copilot Studio expectations
-   - Ensure tools are properly exposed via HTTP endpoints
+1. ✅ COMPLETED: Copilot Studio Connection
+   - Root POST handler (/) added and working
+   - JSON-RPC response format verified and correct
+   - Tools properly exposed via HTTP endpoints
+   - Notification handling implemented correctly
 
-2. TEST MCP PROTOCOL:
-   - Test initialize request
-   - Test tools/list request
-   - Test resources/list request
-   - Verify responses are valid JSON-RPC 2.0 format
+2. ✅ COMPLETED: MCP Protocol Implementation
+   - initialize request handler working
+   - tools/list request handler working (with FastMCP integration)
+   - tools/call request handler working (with FastMCP integration)
+   - resources/list request handler working
+   - All responses are valid JSON-RPC 2.0 format
 
-3. VERIFY TOOL ACCESS:
-   - Ensure FastMCP tools are accessible via HTTP
-   - May need to manually register tools in HTTP server
-   - Test tool execution via HTTP endpoints
+3. ✅ COMPLETED: Tool Access
+   - FastMCP tools accessible via HTTP
+   - Tool execution working via HTTP endpoints
+   - Fallback tool definitions available if FastMCP unavailable
 
-4. COPILOT STUDIO CONFIGURATION:
+4. ⚠️ OAUTH CREDENTIALS DEPLOYMENT (Next Step):
+   - OAuth credentials successfully obtained
+   - Need to deploy to Cloud Run as environment variables:
+     * GOOGLE_ADS_CLIENT_ID
+     * GOOGLE_ADS_CLIENT_SECRET
+     * GOOGLE_ADS_REFRESH_TOKEN
+   - Command to deploy:
+     gcloud run services update google-ads-mcp --region us-central1 \
+       --update-env-vars "GOOGLE_ADS_CLIENT_ID=...,GOOGLE_ADS_CLIENT_SECRET=...,GOOGLE_ADS_REFRESH_TOKEN=..."
+   - Alternative: Use Secret Manager for more secure credential storage
+
+5. ⚠️ COPILOT STUDIO TESTING (Pending):
    - Server URL: https://google-ads-mcp-404988868020.us-central1.run.app
    - Authentication: Set to "None" (server uses environment variables)
-   - Verify connection works after fixes
+   - Previous SystemError was due to authentication issue (UNAUTHENTICATED)
+   - Once OAuth credentials are deployed, re-test in Copilot Studio
+   - Expected: Tools should now execute successfully with proper OAuth authentication
 
 ================================================================================
 TECHNICAL DETAILS
@@ -211,11 +358,25 @@ DEPLOYMENT CONFIGURATION:
 - Timeout: 300 seconds
 - Max Instances: 10
 - Authentication: Unauthenticated (public)
+- Latest Revision: google-ads-mcp-00013-ntz (as of November 14, 2025)
+- Latest Build: a1b6bcaa-1985-48f1-9770-c72e70a09074
+- Previous Revisions:
+  * 00009-z9f: OAuth credentials deployment
+  * 00010-jkk: Lazy initialization and error handling improvements
+  * 00011-qwc: OAuth refresh token update (Fiskars account)
+  * 00012-vxf: Enhanced logging and debugging
+  * 00013-ntz: Copilot Studio fixes (request body, tool schema normalization, initialize response)
 
-ENVIRONMENT VARIABLES (Cloud Run):
-- GOOGLE_ADS_DEVELOPER_TOKEN: LU9JLTXv0fWRIfh6jjXZ4Q
+ENVIRONMENT VARIABLES (Cloud Run - Current):
+- GOOGLE_ADS_DEVELOPER_TOKEN: YOUR_DEVELOPER_TOKEN
 - GOOGLE_PROJECT_ID: mimetic-perigee-290610
 - PORT: 8080 (automatically set by Cloud Run)
+
+ENVIRONMENT VARIABLES (Cloud Run - OAuth - DEPLOYED):
+- GOOGLE_ADS_CLIENT_ID: YOUR_CLIENT_ID.apps.googleusercontent.com ✅
+- GOOGLE_ADS_CLIENT_SECRET: YOUR_CLIENT_SECRET ✅
+- GOOGLE_ADS_REFRESH_TOKEN: YOUR_REFRESH_TOKEN ✅
+  ✅ DEPLOYED - Using Fiskars account (jacob.sander@fiskars.com) with Google Ads access
 
 ================================================================================
 COMMANDS FOR REFERENCE
@@ -223,7 +384,7 @@ COMMANDS FOR REFERENCE
 
 BUILD AND DEPLOY:
 gcloud builds submit --tag gcr.io/mimetic-perigee-290610/google-ads-mcp
-gcloud run deploy google-ads-mcp --image gcr.io/mimetic-perigee-290610/google-ads-mcp --platform managed --region us-central1 --allow-unauthenticated --set-env-vars "GOOGLE_ADS_DEVELOPER_TOKEN=LU9JLTXv0fWRIfh6jjXZ4Q,GOOGLE_PROJECT_ID=mimetic-perigee-290610"
+gcloud run deploy google-ads-mcp --image gcr.io/mimetic-perigee-290610/google-ads-mcp --platform managed --region us-central1 --allow-unauthenticated --set-env-vars "GOOGLE_ADS_DEVELOPER_TOKEN=YOUR_DEVELOPER_TOKEN,GOOGLE_PROJECT_ID=YOUR_PROJECT_ID"
 
 VIEW LOGS:
 gcloud run services logs read google-ads-mcp --region us-central1 --limit 50
@@ -239,9 +400,64 @@ CONTACT & RESOURCES
 ================================================================================
 
 Google Ads MCP Repository: https://github.com/googleads/google-ads-mcp
+Project Repository: https://github.com/jacsander/google-ads-mcp-server
 MCP Protocol Documentation: https://modelcontextprotocol.io
 Google Cloud Run Docs: https://cloud.google.com/run/docs
 Copilot Studio Docs: https://learn.microsoft.com/microsoft-copilot-studio/
+
+================================================================================
+LATEST FIXES SUMMARY (November 14, 2025)
+================================================================================
+
+ISSUES ADDRESSED (November 14, 2025):
+1. ✅ Copilot Studio Connection: Fixed request body reading issue (was reading twice)
+2. ✅ Tool Schema Normalization: Fixed array type issues (converted ["integer", "string"] to "string")
+3. ✅ Initialize Response: Enhanced capabilities to explicitly indicate tool support
+4. ✅ Copilot Studio Integration: Successfully verified connection and tool execution
+   - Initialize handshake working
+   - Tools/list discovery working
+   - Tools/call execution working
+   - All MCP protocol methods functioning correctly
+
+CURRENT BLOCKER (November 14, 2025):
+⚠️ Developer Token Access Level: DEVELOPER_TOKEN_NOT_APPROVED
+   - Developer token is only approved for test accounts
+   - Cannot access production Google Ads accounts
+   - Solution: Apply for Basic or Standard access at https://ads.google.com/aw/apicenter
+   - Status: Waiting for approval (can take several days)
+
+ISSUES ADDRESSED (November 13, 2025):
+1. ✅ Root POST Handler: Added @app.post("/") endpoint for Copilot Studio compatibility
+2. ✅ JSON-RPC Formatting: Fixed malformed responses, ensured proper structure
+3. ✅ Notification Handling: Implemented proper 204 No Content responses (removed Content-Length header)
+4. ✅ Async Methods: Added coroutine detection and awaiting for FastMCP methods
+5. ✅ Tool Execution: Implemented tools/call handler with proper result formatting
+6. ✅ Error Handling: Improved exception handling with proper JSON-RPC error codes
+7. ✅ Logging: Enhanced logging for better debugging
+8. ✅ Tool Parameter Validation: Added validation for search tool parameters
+9. ✅ Customer ID Normalization: Automatic removal of hyphens from customer IDs
+10. ✅ File Path Handling: Fixed gaql_resources.json path issues
+11. ✅ OAuth Authentication: Implemented OAuth 2.0 credential support
+12. ✅ OAuth Token Generation: Successfully obtained refresh token for Google Ads API
+
+⚠️ NEXT STEPS (Updated November 14, 2025):
+- ✅ OAuth credentials deployed to Cloud Run
+- ✅ Copilot Studio connection verified and working
+- ⚠️ Apply for Basic/Standard developer token access in Google Ads API Center
+- Once developer token is upgraded, production account access will work
+
+TECHNICAL CHANGES:
+- handle_mcp_request() function: Centralized MCP request handling
+- Async support: Proper handling of async FastMCP methods (list_tools, call_tool)
+- Response types: Proper use of Response vs JSONResponse for different cases
+- Capabilities: Updated initialize response to indicate tool support
+
+DEPLOYMENT STATUS:
+- Latest revision: google-ads-mcp-00008-x49 (includes tool validation fixes)
+- Server responding correctly to MCP protocol requests
+- OAuth credentials obtained but NOT YET DEPLOYED to Cloud Run
+- Next deployment needed: Add OAuth environment variables to Cloud Run
+- Once OAuth credentials are deployed, Copilot Studio authentication should work
 
 ================================================================================
 END OF SUMMARY

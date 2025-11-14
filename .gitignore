@@ -50,3 +50,6 @@ token.json
 !tsconfig.json
 !mcp_config_example.json
 !cloudbuild.yaml
+# OAuth credentials
+oauth_credentials.json
+client_secret_*.txt

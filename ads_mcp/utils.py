@@ -26,9 +26,12 @@ from google.ads.googleads.v21.services.services.google_ads_service import (
 
 from google.ads.googleads.util import get_nested_attr
 import google.auth
+from google.oauth2.credentials import Credentials as OAuthCredentials
+from google.auth.transport.requests import Request
 from ads_mcp.mcp_header_interceptor import MCPHeaderInterceptor
 import os
 import importlib.resources
+import json
 
 # filename for generated field information used by search
 _GAQL_FILENAME = "gaql_resources.json"
@@ -41,9 +44,80 @@ _READ_ONLY_ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
 
 
 def _create_credentials() -> google.auth.credentials.Credentials:
-    """Returns Application Default Credentials with read-only scope."""
-    (credentials, _) = google.auth.default(scopes=[_READ_ONLY_ADS_SCOPE])
-    return credentials
+    """Returns OAuth credentials from environment variables or Secret Manager, 
+    or falls back to Application Default Credentials.
+    
+    Google Ads API requires OAuth 2.0 user credentials, not service accounts.
+    """
+    # Try to load OAuth credentials from environment variables first
+    client_id = os.environ.get("GOOGLE_ADS_CLIENT_ID")
+    client_secret = os.environ.get("GOOGLE_ADS_CLIENT_SECRET")
+    refresh_token = os.environ.get("GOOGLE_ADS_REFRESH_TOKEN")
+    
+    if client_id and client_secret and refresh_token:
+        logger.info("Using OAuth credentials from environment variables")
+        credentials = OAuthCredentials(
+            token=None,
+            refresh_token=refresh_token,
+            token_uri="https://oauth2.googleapis.com/token",
+            client_id=client_id,
+            client_secret=client_secret,
+            scopes=[_READ_ONLY_ADS_SCOPE]
+        )
+        # Refresh the token to get a valid access token
+        try:
+            credentials.refresh(Request())
+            logger.info("Successfully refreshed OAuth credentials")
+            return credentials
+        except Exception as e:
+            logger.error(f"Failed to refresh OAuth credentials: {e}")
+            raise ValueError(f"Failed to refresh OAuth credentials: {e}. "
+                           "Please verify your client_id, client_secret, and refresh_token are correct.")
+    
+    # Try to load from Secret Manager if available
+    try:
+        from google.cloud import secretmanager
+        project_id = os.environ.get("GOOGLE_PROJECT_ID")
+        if project_id:
+            client = secretmanager.SecretManagerServiceClient()
+            # Try to get OAuth credentials from Secret Manager
+            try:
+                secret_name = f"projects/{project_id}/secrets/google-ads-oauth-credentials/versions/latest"
+                response = client.access_secret_version(request={"name": secret_name})
+                oauth_creds = json.loads(response.payload.data.decode("UTF-8"))
+                
+                credentials = OAuthCredentials(
+                    token=None,
+                    refresh_token=oauth_creds.get("refresh_token"),
+                    token_uri="https://oauth2.googleapis.com/token",
+                    client_id=oauth_creds.get("client_id"),
+                    client_secret=oauth_creds.get("client_secret"),
+                    scopes=[_READ_ONLY_ADS_SCOPE]
+                )
+                credentials.refresh(Request())
+                logger.info("Successfully loaded OAuth credentials from Secret Manager")
+                return credentials
+            except Exception as e:
+                logger.warning(f"Could not load OAuth credentials from Secret Manager: {e}")
+    except ImportError:
+        logger.warning("google-cloud-secret-manager not available, skipping Secret Manager lookup")
+    except Exception as e:
+        logger.warning(f"Error accessing Secret Manager: {e}")
+    
+    # Fall back to Application Default Credentials (may not work for Google Ads API)
+    logger.warning("No OAuth credentials found. Falling back to Application Default Credentials. "
+                   "Note: Google Ads API requires OAuth 2.0 user credentials, not service accounts.")
+    try:
+        (credentials, _) = google.auth.default(scopes=[_READ_ONLY_ADS_SCOPE])
+        return credentials
+    except Exception as e:
+        logger.error(f"Failed to get Application Default Credentials: {e}")
+        raise ValueError(
+            "Google Ads API requires OAuth 2.0 user credentials. "
+            "Please set GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, and GOOGLE_ADS_REFRESH_TOKEN "
+            "environment variables, or configure OAuth credentials in Secret Manager. "
+            f"Error: {e}"
+        )
 
 
 def _get_developer_token() -> str:
@@ -73,17 +147,38 @@ def _get_googleads_client() -> GoogleAdsClient:
     return client
 
 
-_googleads_client = _get_googleads_client()
+_googleads_client = None  # Lazy initialization - created on first use
+
+
+def _get_or_create_googleads_client() -> GoogleAdsClient:
+    """Lazy initialization of Google Ads client.
+    
+    This prevents the client from being created at module import time,
+    which could cause server startup failures if credentials are invalid.
+    """
+    global _googleads_client
+    if _googleads_client is None:
+        try:
+            logger.info("Creating Google Ads client (first use)...")
+            _googleads_client = _get_googleads_client()
+            logger.info("Google Ads client created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create Google Ads client: {e}", exc_info=True)
+            raise ValueError(
+                f"Failed to initialize Google Ads client: {e}. "
+                "Please check your OAuth credentials and developer token."
+            ) from e
+    return _googleads_client
 
 
 def get_googleads_service(serviceName: str) -> GoogleAdsServiceClient:
-    return _googleads_client.get_service(
+    return _get_or_create_googleads_client().get_service(
         serviceName, interceptors=[MCPHeaderInterceptor()]
     )
 
 
 def get_googleads_type(typeName: str):
-    return _googleads_client.get_type(typeName)
+    return _get_or_create_googleads_client().get_type(typeName)
 
 
 def format_output_value(value: Any) -> Any:

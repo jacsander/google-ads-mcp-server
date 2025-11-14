@@ -20,7 +20,7 @@ import logging
 import asyncio
 from typing import AsyncIterator, Dict, Any, Optional
 from fastapi import FastAPI, Request, HTTPException, Body
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from ads_mcp.coordinator import mcp
 
@@ -29,6 +29,34 @@ from ads_mcp.tools import search, core  # noqa: F401
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
+
+
+def normalize_tool_schema(schema: Dict[str, Any]) -> Dict[str, Any]:
+    """Normalize tool schema to ensure Copilot Studio compatibility.
+    
+    Fixes common issues:
+    - Converts array types to single type (uses string for union types)
+    - Ensures all required fields are present
+    """
+    if not isinstance(schema, dict):
+        return schema
+    
+    normalized = schema.copy()
+    
+    # Fix properties if they exist
+    if "properties" in normalized and isinstance(normalized["properties"], dict):
+        for prop_name, prop_schema in normalized["properties"].items():
+            if isinstance(prop_schema, dict):
+                # Fix array types (e.g., ["integer", "string"] -> "string")
+                if "type" in prop_schema and isinstance(prop_schema["type"], list):
+                    # Use string type for union types (more flexible)
+                    prop_schema = prop_schema.copy()
+                    prop_schema["type"] = "string"
+                    if "description" not in prop_schema:
+                        prop_schema["description"] = f"Accepts string or number (will be converted)"
+                    normalized["properties"][prop_name] = prop_schema
+    
+    return normalized
 
 app = FastAPI(title="Google Ads MCP Server")
 
@@ -93,10 +121,11 @@ async def sse_endpoint(request: Request):
     )
 
 
-async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
+async def handle_mcp_request(body: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Handle MCP protocol requests and return JSON-RPC responses.
     
     This is a shared handler for both / and /messages endpoints.
+    Returns None for notifications (which don't require responses).
     """
     method = body.get("method")
     params = body.get("params", {})
@@ -104,16 +133,30 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
     
     logger.info(f"Handling MCP request: method={method}, id={request_id}")
     
+    # Handle notifications (they don't have an id and don't return responses)
+    if method and method.startswith("notifications/"):
+        logger.info(f"Received notification: {method}, no response needed")
+        return None  # Notifications don't return responses in JSON-RPC 2.0
+    
     # Handle initialize
     if method == "initialize":
-        return {
+        logger.info(f"Initialize request received. Params: {params}")
+        # Enhanced capabilities to explicitly indicate tool support
+        response = {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {},
-                    "resources": {}
+                    "tools": {
+                        "listChanged": True
+                    },
+                    "resources": {
+                        "subscribe": False,
+                        "listChanged": False
+                    },
+                    "prompts": {},
+                    "sampling": {}
                 },
                 "serverInfo": {
                     "name": "google-ads-mcp",
@@ -121,6 +164,8 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
                 }
             }
         }
+        logger.info(f"Sending initialize response: {json.dumps(response, indent=2)}")
+        return response
     
     # Handle tools/list
     elif method == "tools/list":
@@ -128,23 +173,34 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
         try:
             # Use FastMCP's list_tools method if available
             if hasattr(mcp, 'list_tools'):
-                mcp_tools = mcp.list_tools()
+                mcp_tools_result = mcp.list_tools()
+                # Check if it's a coroutine (async method)
+                if asyncio.iscoroutine(mcp_tools_result):
+                    mcp_tools = await mcp_tools_result
+                else:
+                    mcp_tools = mcp_tools_result
                 for tool in mcp_tools:
                     # MCPTool objects have name, description, and inputSchema attributes
+                    input_schema = getattr(tool, 'inputSchema', {})
+                    # Normalize schema for Copilot Studio compatibility
+                    input_schema = normalize_tool_schema(input_schema)
                     tool_dict = {
                         "name": getattr(tool, 'name', str(tool)),
                         "description": getattr(tool, 'description', ''),
-                        "inputSchema": getattr(tool, 'inputSchema', {})
+                        "inputSchema": input_schema
                     }
                     tools.append(tool_dict)
                     logger.debug(f"Found tool: {tool_dict['name']}")
             # Fallback: try accessing tools directly
             elif hasattr(mcp, '_tools') and mcp._tools:
                 for tool_name, tool_info in mcp._tools.items():
+                    input_schema = tool_info.get("inputSchema", {})
+                    # Normalize schema for Copilot Studio compatibility
+                    input_schema = normalize_tool_schema(input_schema)
                     tools.append({
                         "name": tool_name,
                         "description": tool_info.get("description", ""),
-                        "inputSchema": tool_info.get("inputSchema", {})
+                        "inputSchema": input_schema
                     })
             
             # If still no tools, use fallback definitions
@@ -162,7 +218,7 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
                                 "fields": {"type": "array", "items": {"type": "string"}},
                                 "conditions": {"type": "array", "items": {"type": "string"}},
                                 "orderings": {"type": "array", "items": {"type": "string"}},
-                                "limit": {"type": ["integer", "string"]}
+                                "limit": {"type": "string", "description": "Limit as string (will be converted to integer)"}
                             },
                             "required": ["customer_id", "fields", "resource"]
                         }
@@ -191,7 +247,7 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
                             "fields": {"type": "array", "items": {"type": "string"}},
                             "conditions": {"type": "array", "items": {"type": "string"}},
                             "orderings": {"type": "array", "items": {"type": "string"}},
-                            "limit": {"type": ["integer", "string"]}
+                            "limit": {"type": "string", "description": "Limit as string (will be converted to integer)"}
                         },
                         "required": ["customer_id", "fields", "resource"]
                     }
@@ -207,23 +263,30 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
             ]
         
         logger.info(f"Returning {len(tools)} tools")
-        return {
+        response = {
             "jsonrpc": "2.0",
             "id": request_id,
             "result": {"tools": tools}
         }
+        logger.info(f"Tools list response: {json.dumps(response, indent=2)[:500]}...")  # Log first 500 chars
+        return response
     
     # Handle tools/call
     elif method == "tools/call":
         tool_name = params.get("name")
         tool_args = params.get("arguments", {})
         
-        logger.info(f"Calling tool: {tool_name} with args: {tool_args}")
+        logger.info(f"Calling tool: {tool_name} with args: {json.dumps(tool_args, indent=2)}")
         
         try:
-            # Use FastMCP's call_tool method if available (it's synchronous)
+            # Use FastMCP's call_tool method if available
             if hasattr(mcp, 'call_tool'):
-                result = mcp.call_tool(tool_name, tool_args)
+                call_result = mcp.call_tool(tool_name, tool_args)
+                # Check if it's a coroutine (async method)
+                if asyncio.iscoroutine(call_result):
+                    result = await call_result
+                else:
+                    result = call_result
                 # call_tool returns either Sequence[ContentBlock] or dict[str, Any]
                 # If it's already a dict with content, use it directly
                 if isinstance(result, dict) and "content" in result:
@@ -286,13 +349,40 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
                     }
                 }
         except Exception as e:
-            logger.error(f"Error calling tool {tool_name}: {e}", exc_info=True)
+            error_msg = str(e)
+            logger.error(f"Error calling tool {tool_name}: {error_msg}", exc_info=True)
+            
+            # Provide more helpful error messages for common issues
+            if "NOT_ADS_USER" in error_msg or "not associated with any Ads accounts" in error_msg:
+                error_msg = (
+                    "The Google account used for OAuth authentication is not associated with any Google Ads accounts. "
+                    "Please ensure the Google account that generated the OAuth refresh token has access to at least one Google Ads account. "
+                    "You may need to: 1) Use a different Google account that has Google Ads access, "
+                    "2) Add the current account to a Google Ads account, or 3) Generate a new OAuth refresh token with an account that has Ads access."
+                )
+            elif "UNAUTHENTICATED" in error_msg and "OAuth" in error_msg:
+                error_msg = (
+                    "OAuth authentication failed. Please verify that the OAuth credentials (GOOGLE_ADS_CLIENT_ID, "
+                    "GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_REFRESH_TOKEN) are correct and the refresh token is still valid. "
+                    f"Original error: {error_msg}"
+                )
+            elif "Fields parameter is required" in error_msg or "cannot be empty" in error_msg:
+                error_msg = f"{error_msg} The 'fields' parameter must contain at least one field name (e.g., ['metrics.cost_micros', 'segments.date'])."
+            elif "Customer ID must be numeric" in error_msg:
+                error_msg = f"{error_msg} Please remove hyphens and use only numbers (e.g., '7011849472' instead of '701-184-9472')."
+            elif "INVALID_ARGUMENT" in error_msg or "unexpected input" in error_msg:
+                error_msg = f"Invalid query format: {error_msg}. Please check that all fields, conditions, and resource names are valid Google Ads API fields."
+            
             return {
                 "jsonrpc": "2.0",
                 "id": request_id,
                 "error": {
                     "code": -32603,
-                    "message": f"Error executing tool {tool_name}: {str(e)}"
+                    "message": f"Error executing tool {tool_name}: {error_msg}",
+                    "data": {
+                        "tool": tool_name,
+                        "arguments": tool_args
+                    }
                 }
             }
     
@@ -320,8 +410,17 @@ async def handle_mcp_request(body: Dict[str, Any]) -> Dict[str, Any]:
 async def root_handler(request: Request):
     """Root POST handler for Copilot Studio requests."""
     try:
+        # Read and parse the request body once
         body = await request.json()
+        logger.info(f"Root POST request received. Body keys: {list(body.keys())}, method: {body.get('method')}, id: {body.get('id')}")
+        logger.debug(f"Request body: {json.dumps(body, indent=2)}")
         response = await handle_mcp_request(body)
+        # Notifications return None and shouldn't send a response
+        if response is None:
+            # 204 No Content - must have no body and no Content-Length header
+            logger.info("Sending 204 No Content response for notification")
+            return Response(status_code=204)
+        logger.info(f"Sending JSON response. Response keys: {list(response.keys()) if isinstance(response, dict) else 'not a dict'}")
         return JSONResponse(response)
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in request: {e}")
@@ -335,12 +434,19 @@ async def root_handler(request: Request):
         }, status_code=400)
     except Exception as e:
         logger.error(f"Error handling root request: {e}", exc_info=True)
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Full traceback: {error_trace}")
         return JSONResponse({
             "jsonrpc": "2.0",
-            "id": None,
+            "id": body.get("id") if isinstance(body, dict) else None,
             "error": {
                 "code": -32603,
-                "message": str(e)
+                "message": f"Internal server error: {str(e)}",
+                "data": {
+                    "error_type": type(e).__name__,
+                    "error_details": str(e)
+                }
             }
         }, status_code=500)
 
@@ -355,6 +461,10 @@ async def handle_messages(request: Request):
     try:
         body = await request.json()
         response = await handle_mcp_request(body)
+        # Notifications return None and shouldn't send a response
+        if response is None:
+            # 204 No Content - must have no body and no Content-Length header
+            return Response(status_code=204, headers={"Content-Length": "0"})
         return JSONResponse(response)
     except json.JSONDecodeError as e:
         logger.error(f"Invalid JSON in request: {e}")
